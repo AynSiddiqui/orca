@@ -8,6 +8,7 @@ import {
   host,
   deliveryAdapter,
   openHost,
+  discoverWithoutUserHome,
   menuOf,
   namesOf,
   attachContext,
@@ -80,7 +81,8 @@ describe("a Claude chat whose Claude isn't running lists Claude's own `/` comman
     const catalog = new ClaudeAtRestCommandCatalog({
       resolveWorkspacePath: async () => workspace,
       now: () => clock,
-      probe
+      probe,
+      discover: discoverWithoutUserHome
     })
     const record = () => store.getRecord(SESSION)!
     const commandNames = () => namesOf(catalog.read(record()) ?? null, 'command')

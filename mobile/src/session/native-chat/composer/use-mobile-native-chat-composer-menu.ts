@@ -1,5 +1,5 @@
 import { prepareQueuedMessageEditText } from '../../../../../src/shared/queued-message-edit-command'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   applyMentionSuggestion,
   applyPickerSuggestion,
@@ -138,10 +138,10 @@ export function useMobileNativeChatComposerMenu(input: {
     return () => onSlashMenuDemand?.(false)
   }, [onSlashMenuDemand, slashOpen])
 
-  const placeCaret = (at: number): void => {
+  const placeCaret = useCallback((at: number): void => {
     setCursor(at)
     setPendingSelection({ start: at, end: at })
-  }
+  }, [])
 
   const pick = (row: ComposerMenuRow): void => {
     if (autocomplete.mode === 'none') {
@@ -195,6 +195,7 @@ export function useMobileNativeChatComposerMenu(input: {
     openSlashMenu,
     openFileMenu,
     pendingSelection,
+    placeCaret,
     onSelectionChange: (selection: Selection): void => {
       setCursor(selection.end)
       setPendingSelection(null)

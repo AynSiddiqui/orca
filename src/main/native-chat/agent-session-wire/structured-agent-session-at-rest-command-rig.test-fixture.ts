@@ -19,7 +19,10 @@ import type {
   AgentSessionSlashCommand,
   AgentSessionSubscribeEvent
 } from '../../../shared/agent-session-wire'
-import { ClaudeAtRestCommandCatalog } from '../../claude/claude-at-rest-commands'
+import {
+  ClaudeAtRestCommandCatalog,
+  type ClaudeAtRestCommandsDeps
+} from '../../claude/claude-at-rest-commands'
 
 import type { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
 import { openTestAgentSessionRecordStore } from '../../runtime/agent-session-record-store-test-harness'
@@ -89,15 +92,17 @@ export function adapter(
   }
 }
 
+// Isolate discovery to test folders; a large real home otherwise outlasts the menu wait.
+export const discoverWithoutUserHome: ClaudeAtRestCommandsDeps['discover'] = async (args) => {
+  const { discoverSkills } = await import('../../skills/discovery')
+  return discoverSkills({ ...args, homeDir: join(directory, 'home'), refresh: true })
+}
+
 export function catalogFor(workspacePath: string): ClaudeAtRestCommandCatalog {
   return new ClaudeAtRestCommandCatalog({
     resolveWorkspacePath: async () => workspacePath,
     now: () => clock,
-    // Isolate discovery to test folders, excluding the user’s home.
-    discover: async (args) => {
-      const { discoverSkills } = await import('../../skills/discovery')
-      return discoverSkills({ ...args, homeDir: join(directory, 'home'), refresh: true })
-    }
+    discover: discoverWithoutUserHome
   })
 }
 
