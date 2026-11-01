@@ -12,9 +12,10 @@ ORCA plugin inspect <dir> --json
 ORCA plugin release-entry <dir> --json
 ORCA plugin test [dir] --json
 ORCA plugin check [dir] --json
-ORCA plugin dev watch <dir> [--check] [--approve <fingerprint>] --json
+ORCA plugin dev watch <dir> [--check] [--shot <out-dir> [--shot-panel <id>]] [--approve <fingerprint>] --json
 ORCA plugin dev load <dir> [--approve <fingerprint>] --json
 ORCA plugin dev reload [<dir>] [--approve <fingerprint>] --json
+ORCA plugin dev emit <dir|plugin-key> <event> [--data <json>] --json
 ORCA plugin dev unload <dir|plugin-key> --json
 ORCA plugin list --json
 ORCA plugin logs <plugin-key> --json
@@ -22,6 +23,8 @@ ORCA plugin enable <plugin-key> [--approve <fingerprint>] --json
 ORCA plugin disable <plugin-key> --json
 ORCA plugin system on|off --json
 ORCA plugin restart <plugin-key> --json
+ORCA plugin open <plugin-key> [--panel <id> | --editor <file>] --json
+ORCA plugin shot <plugin-key> [--panel <id>] [--theme light|dark] [--width <px>] [--out <file.png>] --json
 ```
 
 Exit codes: `0` ok, `1` error, `2` `plugin_invalid`, `3` `approval_required` or `approval_stale`.
@@ -48,9 +51,21 @@ Exit codes: `0` ok, `1` error, `2` `plugin_invalid`, `3` `approval_required` or 
    `plugin dev inspect <plugin-key>` opens DevTools windows for its open frames; run it only
    when the user asks. `plugin dev watch <dir> --json` does the load, then stays running and
    prints one JSON object per line (`type`: `loaded`, `log`, `reloaded`, `status`, `approval`,
-   `warning`, `disconnected`, `unloaded`) as logs arrive and saves reload it; run it in a
-   background terminal and read its output. Ctrl-C unloads the folder it loaded.
-5. `plugin dev unload <dir>` when done.
+   `check`, `shot`, `shot_skipped`, `warning`, `disconnected`, `unloaded`) as logs arrive and saves reload it;
+   run it in a background terminal and read its output. Ctrl-C unloads the folder it loaded.
+   `plugin dev emit <dir|plugin-key> <event> --data '<json>'` fires a test event at a
+   development plugin's worker (only events it lists in `contributes.events`; the payload is
+   checked against the event's schema). Handler errors show in `plugin logs` and the watch.
+5. See what you built: `plugin shot <plugin-key> --json` writes a PNG of a panel exactly as Orca
+   draws it (default `.orca/shots/<plugin-key>-<panel>.png`; `--width` applies to that capture
+   only, and `--theme` too but only while Orca's window is hidden or minimized, else
+   `themeApplied: false` with a `themeReason`) and lists the errors the panel showed or logged;
+   read the image file. `plugin dev watch <dir> --shot <out-dir>` opens one panel once (the
+   first, or `--shot-panel <id>`) and captures it after every reload while it stays on screen;
+   when the user shows something else it skips (`shot_skipped`) and never switches back. `plugin open
+   <plugin-key>` shows a panel to the user (`--editor <file>` opens a file in its custom editor).
+   Both need the desktop app with a workspace showing and never raise the window.
+6. `plugin dev unload <dir>` when done.
 
 Paths are on the machine that runs Orca. With `--environment <server>`, pass an absolute path
 on that server. From an SSH or WSL shell that forwards `orca` to another machine, the authoring
