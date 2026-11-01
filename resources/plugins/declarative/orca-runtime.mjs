@@ -13,6 +13,7 @@ var snapshot = {
 };
 var onPersistedChange = null;
 var onMemoryChange = null;
+var onStorageAtom = null;
 var writableAtoms = /* @__PURE__ */ new Set();
 function create(initial, fields = {}) {
   const created = Object.freeze({
@@ -39,7 +40,7 @@ function resetAtoms() {
   }
 }
 function stored(inner) {
-  if (!inner.key) {
+  if (!inner.key || inner.persist === "storage") {
     return { found: false };
   }
   const entry = snapshot[inner.persist].get(inner.key);
@@ -63,8 +64,8 @@ function atom(...args) {
     throw new Error(`atom key "${key}" is already used`);
   }
   const persist = options.persist ?? "memory";
-  if (persist !== "memory" && persist !== "plugin" && persist !== "workspace") {
-    throw new TypeError('persist is "memory", "plugin" or "workspace"');
+  if (!["memory", "plugin", "workspace", "storage"].includes(persist)) {
+    throw new TypeError('persist is "memory", "plugin", "workspace" or "storage"');
   }
   const result = create(initial, {
     key,
@@ -78,6 +79,9 @@ function atom(...args) {
     inner.value = hydrated.value;
   }
   keyed.set(key, result);
+  if (persist === "storage") {
+    onStorageAtom?.(key);
+  }
   return result;
 }
 function derived(compute) {
@@ -166,6 +170,20 @@ function memoryEntry(target) {
 }
 function watchMemoryAtoms(listener) {
   onMemoryChange = listener;
+}
+function watchStorageAtoms(listener) {
+  onStorageAtom = listener;
+  for (const [key, target] of keyed) {
+    if (listener && target[ATOM].persist === "storage") {
+      listener(key);
+    }
+  }
+}
+function applyStorageValue(key, value) {
+  const inner = keyed.get(key)?.[ATOM];
+  if (inner?.persist === "storage") {
+    assign(inner, value === void 0 ? inner.initial : value, false);
+  }
 }
 function hydrateAtoms(scope, values) {
   snapshot[scope] = new Map(values);
@@ -433,43 +451,6 @@ function evaluateOrcaTree(component, editsSeen = /* @__PURE__ */ new Map()) {
   return { tree, callbacks };
 }
 
-// src/shared/plugins/declarative/runtime/declarative-persist-queue.ts
-var PERSIST_DEBOUNCE_MS = 400;
-function createPersistQueue(options) {
-  const pending = /* @__PURE__ */ new Set();
-  let timer = null;
-  function flush() {
-    if (timer !== null) {
-      clearTimeout(timer);
-      timer = null;
-    }
-    const entries = [];
-    for (const target of pending) {
-      const entry = persistedEntry(target);
-      if (!entry) {
-        continue;
-      }
-      try {
-        assertPlainJson(entry.value, `persisted atom "${entry.key}"`);
-        entries.push(entry);
-      } catch (error) {
-        options.report(error);
-      }
-    }
-    pending.clear();
-    if (entries.length > 0) {
-      options.post(entries);
-    }
-  }
-  return {
-    add(target) {
-      pending.add(target);
-      timer ??= setTimeout(flush, PERSIST_DEBOUNCE_MS);
-    },
-    flush
-  };
-}
-
 // src/shared/plugins/declarative/runtime/declarative-memory-retention.ts
 var RETAIN_DEBOUNCE_MS = 50;
 var RETAIN_BATCH = 64;
@@ -671,6 +652,114 @@ function createPanelContext(onRetain) {
   };
 }
 
+// src/shared/plugins/declarative/runtime/declarative-persist-queue.ts
+var PERSIST_DEBOUNCE_MS = 400;
+function createPersistQueue(options) {
+  const pending = /* @__PURE__ */ new Set();
+  let timer = null;
+  function flush() {
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    const entries = [];
+    for (const target of pending) {
+      const entry = persistedEntry(target);
+      if (!entry) {
+        continue;
+      }
+      try {
+        assertPlainJson(entry.value, `persisted atom "${entry.key}"`);
+        entries.push(entry);
+      } catch (error) {
+        options.report(error);
+      }
+    }
+    pending.clear();
+    if (entries.length > 0) {
+      options.post(entries);
+    }
+  }
+  return {
+    add(target) {
+      pending.add(target);
+      timer ??= setTimeout(flush, PERSIST_DEBOUNCE_MS);
+    },
+    flush
+  };
+}
+
+// src/shared/plugins/declarative/runtime/declarative-storage-sync.ts
+function createDeclarativeStorageSync(options) {
+  const storage2 = options.bridge?.storage;
+  const loads = /* @__PURE__ */ new Set();
+  const writtenSince = /* @__PURE__ */ new Map();
+  let generation = 0;
+  function load(key) {
+    if (!storage2) {
+      return;
+    }
+    const startedAt = generation;
+    const task = storage2.get(key).then((value) => {
+      if ((writtenSince.get(key) ?? -1) < startedAt) {
+        applyStorageValue(key, value ?? void 0);
+      }
+    }).catch(options.report).finally(() => loads.delete(task));
+    loads.add(task);
+  }
+  watchStorageAtoms((key) => {
+    generation += 1;
+    load(key);
+  });
+  const subscription = storage2?.onDidChange(({ key }) => {
+    generation += 1;
+    load(key);
+  });
+  return {
+    write(entries) {
+      const rest = [];
+      for (const entry of entries) {
+        if (entry.scope !== "storage") {
+          rest.push(entry);
+          continue;
+        }
+        generation += 1;
+        writtenSince.set(entry.key, generation);
+        void storage2?.set(entry.key, entry.value).catch(options.report);
+      }
+      return rest;
+    },
+    loaded: async () => {
+      await Promise.all(loads);
+    },
+    dispose() {
+      watchStorageAtoms(null);
+      subscription?.dispose();
+    }
+  };
+}
+function createDeclarativePersistence(options) {
+  const storageSync = createDeclarativeStorageSync(options);
+  const queue = createPersistQueue({
+    report: options.report,
+    post: (all) => {
+      const entries = storageSync.write(all);
+      if (entries.length > 0) {
+        options.post(entries);
+      }
+    }
+  });
+  watchPersistedAtoms(queue.add);
+  return {
+    flush: queue.flush,
+    loaded: storageSync.loaded,
+    dispose() {
+      watchPersistedAtoms(null);
+      storageSync.dispose();
+    }
+  };
+}
+
 // src/shared/plugins/declarative/runtime/declarative-renderer.ts
 function createOrcaDeclarativeRuntime(options) {
   const { post } = options;
@@ -805,12 +894,12 @@ function createOrcaDeclarativeRuntime(options) {
       invalidate(retryAfterMs);
     }
   }
-  const persistQueue = createPersistQueue({
+  const persistence = createDeclarativePersistence({
+    bridge,
     report,
     post: (entries) => post(PLUGIN_DECLARATIVE_MESSAGES.persist, { document: document2, entries })
   });
-  const flushPersist = persistQueue.flush;
-  watchPersistedAtoms(persistQueue.add);
+  const flushPersist = persistence.flush;
   const bridgeSubscriptions = bridge?.on ? [
     bridge.on(PLUGIN_DECLARATIVE_MESSAGES.event, dispatchEvent),
     bridge.on(PLUGIN_DECLARATIVE_MESSAGES.ack, acknowledge),
@@ -840,6 +929,7 @@ function createOrcaDeclarativeRuntime(options) {
     document: document2,
     async boot(module) {
       await panel.hydrated;
+      await persistence.loaded();
       if (isCallable(module.setup)) {
         const cleanup = module.setup(context);
         setupCleanup = isCallable(cleanup) ? () => void cleanup() : null;
@@ -900,7 +990,7 @@ function createOrcaDeclarativeRuntime(options) {
       component = null;
       scheduled = false;
       unsubscribeAll();
-      watchPersistedAtoms(null);
+      persistence.dispose();
       for (const subscription of [...bridgeSubscriptions, ...context.subscriptions]) {
         try {
           subscription.dispose();
@@ -1014,6 +1104,45 @@ function createOrcaSdk(source) {
   return { host: host2, api: api2, env: env2, shell: shell2, files: files2, on: on2, ui: ui2 };
 }
 
+// src/shared/plugins/declarative/runtime/declarative-data-sdk.ts
+function unavailable2(what) {
+  return Promise.reject(
+    Object.assign(new Error(`${what} is not available in this Orca`), {
+      code: "unavailable",
+      retryable: false
+    })
+  );
+}
+var NOTHING = { dispose: () => void 0 };
+function createOrcaDataSdk(bridge) {
+  const plugin2 = Object.freeze({
+    request(name, input, options) {
+      return bridge()?.plugin?.request(name, input, options) ?? unavailable2("plugin.request");
+    },
+    on(event, handler) {
+      return bridge()?.plugin?.on(event, handler) ?? NOTHING;
+    }
+  });
+  const storage2 = Object.freeze({
+    get: (key) => bridge()?.storage?.get(key) ?? unavailable2("storage"),
+    set: (key, value) => bridge()?.storage?.set(key, value) ?? unavailable2("storage"),
+    delete: (key) => bridge()?.storage?.delete(key) ?? unavailable2("storage"),
+    keys: () => bridge()?.storage?.keys() ?? unavailable2("storage"),
+    onDidChange: (handler) => bridge()?.storage?.onDidChange(handler) ?? NOTHING
+  });
+  const settings2 = Object.freeze({
+    get: (key) => bridge()?.settings?.get(key) ?? unavailable2("settings"),
+    set: (key, value) => bridge()?.settings?.set(key, value) ?? unavailable2("settings"),
+    onDidChange: (handler) => bridge()?.settings?.onDidChange(handler) ?? NOTHING
+  });
+  const secrets2 = Object.freeze({
+    get: (key) => bridge()?.secrets?.get(key) ?? unavailable2("secrets"),
+    set: (key, value) => bridge()?.secrets?.set(key, value) ?? unavailable2("secrets"),
+    delete: (key) => bridge()?.secrets?.delete(key) ?? unavailable2("secrets")
+  });
+  return { plugin: plugin2, storage: storage2, settings: settings2, secrets: secrets2 };
+}
+
 // src/shared/plugins/declarative/runtime/orca-module.ts
 var runtime = null;
 var pendingMount = null;
@@ -1063,6 +1192,9 @@ var sdk = createOrcaSdk({
   theme: () => runtime ? read(runtime.themeAtom) : { colorScheme: documentColorScheme() ?? "dark" }
 });
 var { host, api, env, shell, files, on, ui } = sdk;
+var { plugin, storage, settings, secrets } = createOrcaDataSdk(
+  () => runtime?.bridge ?? globalBridge()
+);
 var Stack = "Stack";
 var Row = "Row";
 var Text = "Text";
@@ -1116,9 +1248,13 @@ export {
   jsx as jsxs,
   mount,
   on,
+  plugin,
   read,
+  secrets,
   set,
+  settings,
   shell,
+  storage,
   ui,
   update
 };

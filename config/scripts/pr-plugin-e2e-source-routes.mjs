@@ -170,6 +170,31 @@ const SPECIFIC_PLUGIN_ROUTES = [
     ].join('|'),
     'plugin-frame-guest|plugin-smoke'
   ),
+  // Agents and workspace changes in panels: agents.list, terminal ids on agent events.
+  pluginRoute(
+    'plugins.panel-agents',
+    ['plugin-panel-agents'],
+    [
+      'src\\/main\\/plugins\\/(?:plugin-runtime-binding|plugin-agent-status-event|workers\\/plugin-workspace-projection)',
+      'src\\/shared\\/plugins\\/events\\/plugin-events'
+    ].join('|'),
+    'plugin-frame-guest|plugin-smoke|agent-hook-endpoint'
+  ),
+  // A panel and its own worker: requests, posts, storage, settings and pushes.
+  pluginRoute(
+    'plugins.worker-panel',
+    ['plugin-worker-panel'],
+    [
+      'src\\/main\\/plugins\\/panels\\/plugin-panel-bridge',
+      'src\\/main\\/plugins\\/(?:plugin-declared-settings|workers\\/plugin-(?:worker-orca-api|host-panel-method-bindings|worker-requests))',
+      'src\\/main\\/ipc\\/plugin-(?:panel-push|settings)-ipc',
+      'src\\/shared\\/plugins\\/(?:workers\\/plugin-panel-bridge-protocol|frames\\/plugin-panel-shell-facades|contributions\\/plugin-settings-)',
+      'src\\/shared\\/plugins\\/declarative\\/runtime\\/declarative-(?:data-sdk|storage-sync)',
+      'src\\/renderer\\/src\\/components\\/plugins\\/(?:page\\/PluginSettingsSection|state\\/use-plugin-declared-settings)',
+      'examples\\/plugins\\/hello-worker-panel\\/'
+    ].join('|'),
+    'plugin-frame-guest|plugin-smoke'
+  ),
   pluginRoute(
     'plugins.vm-recipes',
     ['plugin-marketplace-content'],

@@ -15,6 +15,8 @@ import { readApprovedPluginNewFileTemplate } from '../plugins/plugin-new-file-te
 import { handlePluginPanelStateRequest } from '../plugins/panels/plugin-panel-state'
 import type { PluginService } from '../plugins/plugin-service'
 import { registerPluginFrameEntryHandlers, rendererPanelOwner } from './plugin-frame-entry-ipc'
+import { registerPluginPanelPushHandlers } from './plugin-panel-push-ipc'
+import { registerPluginSettingsHandlers } from './plugin-settings-ipc'
 import {
   bindPluginFrameGuests,
   clearPluginFrameStorage
@@ -148,6 +150,8 @@ export function registerPluginHandlers(
 
   bindPluginFrameGuests(pluginService)
   registerPluginFrameEntryHandlers(store, pluginService)
+  registerPluginPanelPushHandlers(pluginService)
+  registerPluginSettingsHandlers(pluginService)
 
   ipcMain.handle('plugins:readNewFileTemplate', async (_event, args: unknown) => {
     const parsed = readNewFileTemplateArgsSchema.parse(args)

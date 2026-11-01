@@ -61,6 +61,10 @@ export default function Panel() {
   first render, are saved shortly after they change, and live in the plugin's own data folder; no
   capability is needed. When the stored shape changes, bump `version`; `migrate(stored, fromVersion)` turns
   an older value into the new shape, and without it the atom starts from `initial`.
+- `persist: 'storage'` keeps the atom in the plugin's own storage under its key (the `storage:own`
+  capability): the worker reads the same value with `orca.storage.get(key)`, and a write from the
+  worker or another panel updates the atom. Values are stored as they are, so `version` and
+  `migrate` do not apply; atoms the module creates on load have their value before the first render.
 - `derived(() => ...)` computes from other atoms; it is read-only.
 - `read(atom)` reads; reading while rendering subscribes the panel to it.
 - `set(atom, value)` stores a value as is, functions included; `update(atom, (previous) => next)` derives
@@ -107,6 +111,10 @@ The `orca` module has the same facade as frame panels:
   are not events and `on()` refuses them.
 - `ui.catalog` is a number that grows with the component catalog; `ui.has(component, prop?)` says
   whether this Orca draws a component or accepts a prop on it.
+- `plugin.request(name, input)` and `plugin.on(event)` talk to the plugin's own worker;
+  `storage`, `settings` and `secrets` are the plugin's own data; `on('agent.status.changed')` and
+  the workspace events arrive with their read capability. See
+  [Panels, workers and data](./plugin-authoring.md#panels-workers-and-data).
 
 ## Hot reload
 
@@ -207,14 +215,22 @@ test('adds a task', async () => {
   same edit protocol as Orca.
 - Inspect `tree()` (plain data for snapshots, handlers shown as `[handler]`), `errors` (what the panel
   threw, with its stack, and renders Orca would refuse), `warnings` (props and components Orca would
-  drop) and `persisted`. `emit('theme', ...)`, `setVisible`, `rerender` and `settled` drive the rest;
-  `unmount()` ends the run, running `setup` cleanup.
+  drop) and `persisted` (`plugin`, `workspace`, and the plugin's `storage`). `emit(event, payload)`
+  delivers `theme` or a workspace or agent event, `post(event, payload)` is the worker's
+  `orca.panels.post` (what `plugin.on` hears), and `setVisible`, `rerender` and `settled` drive the
+  rest; `unmount()` ends the run, running `setup` cleanup.
 - `mockHost({ capabilities, results })` stands in for Orca's host. It refuses what Orca refuses, with
   the same error codes: a method panels cannot call, a capability the manifest does not declare
   (capabilities default to the manifest's), bad params, and `shell.openExternal` or `files.saveAs`
   without a press first (each `press` grants one). `results` maps a method to a value or to a function
   of its params, which may throw `hostError(code)`; `calls` and `callsOf(method)` record every call.
   The stationary-control rule for gestures is not simulated.
+- The mock host keeps the plugin's storage, settings and secrets in memory (seed them with
+  `mockHost({ storage, settings, secrets })`, read them with `host.data()`), so `storage`,
+  `settings`, `secrets` and `persist: 'storage'` atoms work under `mount()`, and a write reaches
+  `onDidChange` as in Orca. `requests` stands in for the worker: each `plugin.request` name maps to
+  its answer or a function of the input (which may throw `hostError(code)`); an unlisted name is
+  `unknown_method`. Both follow your `PluginRequests` types.
 
 `orca plugin check [dir]` validates the plugin like `orca plugin validate`, then renders every
 components panel once against `mockHost()` and reports what the panel threw (with `file:line`),
@@ -314,7 +330,7 @@ without granting a second gesture.
 ## Isolation
 
 The module runs in a hidden, sandboxed guest of the plugin's own partition, with the same isolation as frame
-panels: no network (requests outside the plugin's own files are cancelled; Electron 43 still resolves
-`dns-prefetch` hostnames), no Node, no popups, no DOM the person sees. It reaches Orca only through
-`host.call`, `on`, and the UI it renders. Components panels need the desktop app: browser clients
+panels: no network (requests outside the plugin's own files are cancelled), no Node, no popups, no DOM
+the person sees. It reaches Orca only through `host.call` (which `plugin`, `storage`, `settings` and
+`secrets` use), `on`, and the UI it renders. Components panels need the desktop app: browser clients
 (`orca serve` in a web browser) show that instead of the panel.
