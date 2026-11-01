@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { existsSync, readdirSync } from 'node:fs'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -8,7 +9,7 @@ import {
   pluginPanelCheckIssues,
   pluginStackLocation
 } from './plugin-panel-check'
-import { findPluginTestFiles, runPluginTests } from './plugin-test-runner'
+import { findPluginTestFiles, PLUGIN_TEST_FILE, runPluginTests } from './plugin-test-runner'
 
 const roots: string[] = []
 afterEach(async () => {
@@ -24,18 +25,6 @@ async function componentsPlugin(): Promise<string> {
 }
 
 describe('orca plugin test', () => {
-  it(
-    "runs the shipped examples' plugin tests (examples/plugins/*/src/*.test.tsx)",
-    async () => {
-      const dir = resolve('examples/plugins/hello-tsx')
-      const files = await findPluginTestFiles(dir)
-      expect(files.length).toBeGreaterThan(0)
-      expect(await runPluginTests({ dir, files, quietStdout: true })).toMatchObject({ code: 0 })
-    },
-    // Starts its own Node process and transpiles the plugin.
-    60_000
-  )
-
   it(
     "runs the components template's own test with node:test on Orca's runtime and passes",
     async () => {
@@ -107,6 +96,97 @@ describe('orca plugin test', () => {
     },
     // Each run starts its own Node (or vitest) process and transpiles the plugin.
     120_000
+  )
+})
+
+const EXAMPLES = resolve(__dirname, '../../../examples/plugins')
+// Every example with its own tests (examples/plugins/*/src/*.test.tsx).
+const TESTED_EXAMPLES = readdirSync(EXAMPLES).filter((name) => {
+  const src = join(EXAMPLES, name, 'src')
+  return existsSync(src) && readdirSync(src).some((file) => PLUGIN_TEST_FILE.test(file))
+})
+
+describe('orca plugin test with a worker', () => {
+  it(
+    "runs a .ts worker's own tests through mountWorker, resolving its imports as Orca does",
+    async () => {
+      const dir = await componentsPlugin()
+      const manifestPath = join(dir, 'orca-plugin.json')
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+      await writeFile(
+        manifestPath,
+        JSON.stringify({
+          ...manifest,
+          execution: 'trusted-worker',
+          main: 'src/worker.ts',
+          capabilities: [{ kind: 'agent:read' }, { kind: 'notifications:show' }],
+          contributes: { ...manifest.contributes, events: [{ on: 'agent.status.changed' }] }
+        })
+      )
+      await writeFile(
+        join(dir, 'src', 'labels.ts'),
+        "import { basename } from 'node:path'\nexport const label = (key: string): string => basename(key)\n"
+      )
+      await writeFile(
+        join(dir, 'src', 'worker.ts'),
+        [
+          "import type { OrcaWorkerApi } from 'orca/worker'",
+          "import { label } from './labels'",
+          'export default function activate(orca: OrcaWorkerApi): void {',
+          "  orca.events.on('agent.status.changed', async (event) => {",
+          "    if (event.state === 'blocked') {",
+          "      await orca.host.call('notifications.show', { title: label(event.paneKey) })",
+          '    }',
+          '  })',
+          '}',
+          ''
+        ].join('\n')
+      )
+      await writeFile(
+        join(dir, 'src', 'worker.test.ts'),
+        [
+          "import { assert, mountWorker, test } from 'orca/testing'",
+          "import * as main from './worker'",
+          "test('notifies when an agent is blocked', async () => {",
+          '  const worker = await mountWorker(main)',
+          "  await worker.emit('agent.status.changed', { workspaceId: null, paneKey: 'a/b', state: 'blocked', receivedAt: 1 })",
+          "  assert.deepEqual(worker.host.callsOf('notifications.show'), [{ title: 'b' }])",
+          '  assert.deepEqual(worker.refusals, [])',
+          '  await worker.deactivate()',
+          '})',
+          ''
+        ].join('\n')
+      )
+      const files = (await findPluginTestFiles(dir)).filter((file) => file.includes('worker'))
+      expect(await runPluginTests({ dir, files, quietStdout: true })).toMatchObject({ code: 0 })
+    },
+    // Starts its own Node process and transpiles the plugin.
+    60_000
+  )
+})
+
+describe('the example plugins', () => {
+  it('include the build-less and gallery examples', () => {
+    expect(TESTED_EXAMPLES).toEqual(expect.arrayContaining(['hello-tsx', 'components-gallery']))
+  })
+
+  it.each(TESTED_EXAMPLES)(
+    '%s passes its own tests and renders without problems',
+    async (example) => {
+      const dir = join(EXAMPLES, example)
+      const files = await findPluginTestFiles(dir)
+      expect(files.length).toBeGreaterThan(0)
+      expect(await runPluginTests({ dir, files, quietStdout: true })).toMatchObject({
+        runner: 'node',
+        code: 0
+      })
+      const checks = await checkPluginPanels(dir)
+      expect(checks.map(({ issues, warnings }) => ({ issues, warnings }))).toEqual(
+        checks.map(() => ({ issues: [], warnings: [] }))
+      )
+    },
+    // Each run starts its own Node process and transpiles the plugin.
+    60_000
   )
 })
 
@@ -195,6 +275,38 @@ describe('orca plugin check', () => {
       { kind: 'refused', message: 'kaboom' }
     ])
   })
+
+  it(
+    'warns about host calls Orca would refuse, and reports a repeated throw once',
+    async () => {
+      const dir = await componentsPlugin()
+      await writeFile(
+        join(dir, 'src', 'panel.tsx'),
+        [
+          "import { atom, host, read, set, Text } from 'orca'",
+          'const tick = atom(0)',
+          'export function setup() {',
+          "  void host.call('workspace.readContext').catch(() => undefined)",
+          '  void Promise.resolve().then(() => set(tick, 1))',
+          '}',
+          'export default function Panel() {',
+          "  if (read(tick) >= 0) throw new Error('again')",
+          '  return <Text>x</Text>',
+          '}',
+          ''
+        ].join('\n')
+      )
+      const [check] = await checkPluginPanels(dir)
+      expect(check.issues).toEqual([
+        { kind: 'plugin', message: 'again', location: expect.stringMatching(/^src\/panel\.tsx:8:/) }
+      ])
+      expect(check.warnings).toEqual([
+        'host refused workspace.readContext (capability_denied): workspace.readContext needs the workspace:read capability'
+      ])
+    },
+    // Each run starts its own Node process and transpiles the plugin.
+    60_000
+  )
 
   it('finds the first plugin frame in a stack', () => {
     const dir = '/p'
