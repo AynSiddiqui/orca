@@ -2563,7 +2563,8 @@
       "gone": "{{agent}}'s chat is no longer on this host, so it cannot be reopened here.",
       "unknown": "{{agent}}'s chat could not be found on this host. Reconnect to its computer and try again.",
       "unsupported": "{{agent}}'s chat can't be reopened until Orca is updated.",
-      "unreachable": "{{agent}}'s chat is not available yet. Retry in a moment."
+      "unreachable": "{{agent}}'s chat is not available yet. Retry in a moment.",
+      "paneUnavailable": "Agent's pane is no longer available."
     }
   },
   "chat": {
@@ -2925,6 +2926,14 @@
       "ran_one": "Ran {{count}} subagent",
       "ran_other": "Ran {{count}} subagents",
       "tokens": "{{value0}} tokens"
+    },
+    "agentMessage": {
+      "startedWorker": "Started worker",
+      "taskFromCoordinator": "Task from coordinator",
+      "messageFromCoordinator": "Message from coordinator",
+      "updateFromWorker": "Update from worker",
+      "messageFrom": "Message from",
+      "showMore": "Show more"
     }
   },
   "sourceControl": {
