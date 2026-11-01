@@ -601,11 +601,11 @@
 }
 
 .markdown-light .markdown-body a {
-  color: #0969da;
+  color: var(--text-link, #0969da);
 }
 
 .markdown-dark .markdown-body a {
-  color: #58a6ff;
+  color: var(--text-link, #58a6ff);
 }
 
 .markdown-light .markdown-body .markdown-doc-link-broken,

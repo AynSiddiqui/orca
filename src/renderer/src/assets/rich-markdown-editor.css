@@ -1128,7 +1128,7 @@
 
 .rich-markdown-editor a,
 .rich-markdown-editor .ProseMirror a {
-  color: #0969da;
+  color: var(--text-link, #0969da);
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
   text-underline-offset: 2px;
@@ -1141,7 +1141,7 @@
 }
 
 .dark .rich-markdown-editor a {
-  color: #58a6ff;
+  color: var(--text-link, #58a6ff);
 }
 
 .rich-markdown-editor sup[data-rich-markdown-html-superscript-link] {
@@ -1149,14 +1149,14 @@
 }
 
 .rich-markdown-editor .rich-markdown-html-superscript-link {
-  color: #0969da;
+  color: var(--text-link, #0969da);
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
   text-underline-offset: 2px;
 }
 
 .dark .rich-markdown-editor .rich-markdown-html-superscript-link {
-  color: #58a6ff;
+  color: var(--text-link, #58a6ff);
 }
 
 .rich-markdown-mod-held
@@ -1447,14 +1447,14 @@
 }
 
 .rich-markdown-editor .rich-markdown-doc-link {
-  color: #0969da;
+  color: var(--text-link, #0969da);
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
   text-underline-offset: 2px;
 }
 
 .dark .rich-markdown-editor .rich-markdown-doc-link {
-  color: #58a6ff;
+  color: var(--text-link, #58a6ff);
 }
 
 .rich-markdown-editor .rich-markdown-doc-link.rich-markdown-doc-link--missing {
@@ -1474,14 +1474,14 @@
 
 /* Match committed doc-link styling while [[target]] is still being typed to avoid a visual jump. */
 .rich-markdown-editor .rich-markdown-doc-link-preview {
-  color: #0969da;
+  color: var(--text-link, #0969da);
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
   text-underline-offset: 2px;
 }
 
 .dark .rich-markdown-editor .rich-markdown-doc-link-preview {
-  color: #58a6ff;
+  color: var(--text-link, #58a6ff);
 }
 
 .rich-markdown-editor .rich-markdown-doc-link-preview.rich-markdown-doc-link-preview--missing {
